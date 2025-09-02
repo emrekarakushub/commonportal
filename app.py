@@ -34,14 +34,12 @@ def get_token_auth_code(client_id, client_secret, tenant_id, redirect_uri):
         authority=authority
     )
 
-    # URL’den code parametresini al
     params = st.query_params
     code = params.get("code", [None])[0]
 
     if not code:
-        # Kullanıcıya login linkini göster
         auth_url = app.get_authorization_request_url(
-            scopes=["openid", "profile", "email", "User.Read", "Mail.Send"],
+            scopes=["User.Read", "Mail.Send"],
             redirect_uri=redirect_uri,
             response_type="code",
             response_mode="query",
@@ -50,10 +48,9 @@ def get_token_auth_code(client_id, client_secret, tenant_id, redirect_uri):
         st.markdown(f"[👉 Microsoft ile giriş yapmak için tıklayın]({auth_url})")
         st.stop()
 
-    # Authorization code’u access token’e çevir
     result = app.acquire_token_by_authorization_code(
         code,
-        scopes=["openid", "profile", "email", "User.Read", "Mail.Send"],
+        scopes=["User.Read", "Mail.Send"],
         redirect_uri=redirect_uri
     )
 
