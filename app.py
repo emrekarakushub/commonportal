@@ -85,6 +85,19 @@ def file_to_base64(path: str) -> Tuple[str, str]:
 
 def build_graph_message(to_addr: str, subject: str, body_html: str,
                         attachment_path: Optional[str], cc_list: Optional[List[Dict[str, Dict[str, str]]]] = None) -> Dict[str, Any]:
+    to_addr = to_addr.strip().lower()
+    clean_cc = []
+    seen = set()
+    if cc_list:
+        for r in cc_list:
+            addr = r["emailAddress"]["address"].strip().lower()
+            if addr == to_addr:
+                continue  # To ile aynı olanı atla
+            if addr not in seen:
+                seen.add(addr)
+                clean_cc.append({"emailAddress": {"address": addr}})
+    cc_list = clean_cc
+
     message: Dict[str, Any] = {
         "message": {
             "subject": subject,
