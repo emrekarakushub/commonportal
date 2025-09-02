@@ -45,8 +45,12 @@ def get_token_auth_code(client_id, client_secret, tenant_id, redirect_uri):
         # Kullanıcıya login linkini göster
         auth_url = app.get_authorization_request_url(
             scopes=["User.Read", "Mail.Send"],
-            redirect_uri=redirect_uri
+            redirect_uri=redirect_uri,
+            response_type="code",
+            response_mode="query",
+            prompt="select_account"
         )
+
         st.markdown(f"[Microsoft ile giriş yapmak için tıklayın]({auth_url})")
         st.stop()
 
@@ -56,6 +60,7 @@ def get_token_auth_code(client_id, client_secret, tenant_id, redirect_uri):
         scopes=["User.Read", "Mail.Send"],
         redirect_uri=redirect_uri
     )
+
 
 
     if "access_token" not in result:
