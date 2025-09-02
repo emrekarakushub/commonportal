@@ -1,0 +1,14 @@
+{
+  "first": {
+    "subject": "Ödeme Hatırlatması – Fatura {invoice_no}",
+    "body_html": "<p>Merhaba {name},</p>\n<p>Aşağıda bilgileri yer alan faturanız için ödemenizi bekliyoruz:</p>\n<ul>\n  <li>Fatura No: <b>{invoice_no}</b></li>\n  <li>Tutar: <b>{amount} TL</b></li>\n</ul>\n<p>Ödemeyi tamamladınızsa bu mesajı dikkate almayabilirsiniz. Aksi halde bilgi verirseniz seviniriz.</p>\n<p>Sevgiler,<br>Finans Ekibi</p>"
+  },
+  "second": {
+    "subject": "2. Hatırlatma – Fatura {invoice_no} için bekleyen ödeme",
+    "body_html": "<p>Merhaba {name},</p>\n<p>Fatura <b>{invoice_no}</b> için ilk hatırlatmamızdan bu yana ödemeniz sistemimize düşmedi.</p>\n<p>Ödeme durumunu bizimle paylaşabilir misiniz?</p>\n<p>Teşekkürler,<br>Finans Ekibi</p>"
+  },
+  "final": {
+    "subject": "Son Hatırlatma – Fatura {invoice_no}",
+    "body_html": "<p>Merhaba {name},</p>\n<p>Bu, <b>{invoice_no}</b> numaralı fatura için <b>son hatırlatmadır</b>.</p>\n<p>Lütfen ödemeyi en kısa sürede gerçekleştiriniz. Aksi halde sözleşmeye bağlı süreçler devreye alınacaktır.</p>\n<p>Saygılarımızla,<br>Finans Ekibi</p>"
+  }
+}
