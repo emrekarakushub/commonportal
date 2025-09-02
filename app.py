@@ -55,12 +55,25 @@ def get_token(client_id: str, tenant_id: str, cache_path: str = "token_cache.jso
     open(cache_path, "w", encoding="utf-8").write(cache.serialize())
     return result
 
-def parse_recipients(value: Optional[str]) -> List[Dict[str, Dict[str, str]]]:
-    if not value:
+def parse_recipients(value):
+    # Boş/None/NaN/“nan”/“none”/“null” değerlerini ele
+    if value is None:
         return []
-    raw = str(value).replace(";", ",")
-    addrs = [a.strip() for a in raw.split(",") if a.strip()]
-    return [{"emailAddress": {"address": a}} for a in addrs]
+    raw = str(value).strip()
+    if not raw or raw.lower() in {"nan", "none", "null"}:
+        return []
+    # ; ve , ile ayrılmış adresleri al, trim + lower yap, tekilleştir
+    raw = raw.replace(";", ",")
+    seen = set()
+    out = []
+    for a in [x.strip().lower() for x in raw.split(",") if x.strip()]:
+        if a in {"nan", "none", "null"}:
+            continue
+        if a not in seen:
+            seen.add(a)
+            out.append({"emailAddress": {"address": a}})
+    return out
+
 
 def file_to_base64(path: str) -> Tuple[str, str]:
     import mimetypes
@@ -201,6 +214,9 @@ if uploaded:
             subject, body_html = format_template(tpl, row)
             pdf_path = str(row.get("invoice_pdf","")).strip()
             cc_list = parse_recipients(row.get("cc",""))
+            to_addr = str(row.get("email","")).strip().lower()
+            cc_list = [r for r in cc_list if r["emailAddress"]["address"].lower() != to_addr]
+
 
             if dry_run:
                 logs.append(f"[DRY] {row.get('email','')} | {tkey} | {pdf_path} | CC:{[x['emailAddress']['address'] for x in cc_list]}")
