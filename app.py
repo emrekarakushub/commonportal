@@ -208,8 +208,11 @@ if uploaded:
         access_token = None
         if not dry_run:
             client_id, tenant_id = load_env()
-            tok = get_token(client_id, tenant_id)
+            client_secret = os.getenv("GRAPH_CLIENT_SECRET")
+            redirect_uri = os.getenv("AUTH_REDIRECT_URI")
+            tok = get_token_auth_code(client_id, client_secret, tenant_id, redirect_uri)
             access_token = tok["access_token"]
+
 
         sent_count = 0
         logs = []
