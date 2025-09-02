@@ -6,15 +6,13 @@ import io
 import os
 import base64
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
-from msal import PublicClientApplication, SerializableTokenCache
 from dotenv import load_dotenv
+from msal import ConfidentialClientApplication
 
 st.set_page_config(page_title="Fatura Mailer", page_icon="📧", layout="wide")
 
-GRAPH_AUTHORITY_TEMPLATE = "https://login.microsoftonline.com/{tenant_id}"
-GRAPH_SCOPES = ["User.Read", "Mail.Send"]
 GRAPH_SENDMAIL_URL = "https://graph.microsoft.com/v1.0/me/sendMail"
 
 # ---------- Utility ----------
@@ -23,12 +21,11 @@ def load_env():
     client_id = os.getenv("GRAPH_CLIENT_ID", "").strip()
     tenant_id = os.getenv("GRAPH_TENANT_ID", "").strip()
     if not client_id or not tenant_id:
-        st.error("`.env` dosyasında GRAPH_CLIENT_ID ve/veya GRAPH_TENANT_ID yok.")
+        st.error("Secrets veya .env içinde GRAPH_CLIENT_ID ve/veya GRAPH_TENANT_ID yok.")
         st.stop()
     return client_id, tenant_id
 
-from msal import ConfidentialClientApplication
-
+# ---------- Auth ----------
 def get_token_auth_code(client_id, client_secret, tenant_id, redirect_uri):
     authority = f"https://login.microsoftonline.com/{tenant_id}"
     app = ConfidentialClientApplication(
@@ -37,31 +34,28 @@ def get_token_auth_code(client_id, client_secret, tenant_id, redirect_uri):
         authority=authority
     )
 
-    # Query params’tan code’u al
+    # URL’den code parametresini al
     params = st.query_params
     code = params.get("code", [None])[0]
 
     if not code:
         # Kullanıcıya login linkini göster
         auth_url = app.get_authorization_request_url(
-            scopes=["User.Read", "Mail.Send"],
+            scopes=["openid", "profile", "email", "User.Read", "Mail.Send"],
             redirect_uri=redirect_uri,
             response_type="code",
             response_mode="query",
             prompt="select_account"
         )
-
-        st.markdown(f"[Microsoft ile giriş yapmak için tıklayın]({auth_url})")
+        st.markdown(f"[👉 Microsoft ile giriş yapmak için tıklayın]({auth_url})")
         st.stop()
 
     # Authorization code’u access token’e çevir
     result = app.acquire_token_by_authorization_code(
         code,
-        scopes=["User.Read", "Mail.Send"],
+        scopes=["openid", "profile", "email", "User.Read", "Mail.Send"],
         redirect_uri=redirect_uri
     )
-
-
 
     if "access_token" not in result:
         st.error(f"Giriş başarısız: {result.get('error_description')}")
@@ -69,14 +63,13 @@ def get_token_auth_code(client_id, client_secret, tenant_id, redirect_uri):
 
     return result
 
+# ---------- Helpers ----------
 def parse_recipients(value):
-    # Boş/None/NaN/“nan”/“none”/“null” değerlerini ele
     if value is None:
         return []
     raw = str(value).strip()
     if not raw or raw.lower() in {"nan", "none", "null"}:
         return []
-    # ; ve , ile ayrılmış adresleri al, trim + lower yap, tekilleştir
     raw = raw.replace(";", ",")
     seen = set()
     out = []
@@ -88,7 +81,6 @@ def parse_recipients(value):
             out.append({"emailAddress": {"address": a}})
     return out
 
-
 def file_to_base64(path: str) -> Tuple[str, str]:
     import mimetypes
     ctype, _ = mimetypes.guess_type(path)
@@ -98,7 +90,8 @@ def file_to_base64(path: str) -> Tuple[str, str]:
     return b64, ctype
 
 def build_graph_message(to_addr: str, subject: str, body_html: str,
-                        attachment_path: Optional[str], cc_list: Optional[List[Dict[str, Dict[str, str]]]] = None) -> Dict[str, Any]:
+                        attachment_path: Optional[str],
+                        cc_list: Optional[List[Dict[str, Dict[str, str]]]] = None) -> Dict[str, Any]:
     to_addr = to_addr.strip().lower()
     clean_cc = []
     seen = set()
@@ -106,7 +99,7 @@ def build_graph_message(to_addr: str, subject: str, body_html: str,
         for r in cc_list:
             addr = r["emailAddress"]["address"].strip().lower()
             if addr == to_addr:
-                continue  # To ile aynı olanı atla
+                continue
             if addr not in seen:
                 seen.add(addr)
                 clean_cc.append({"emailAddress": {"address": addr}})
@@ -131,8 +124,6 @@ def build_graph_message(to_addr: str, subject: str, body_html: str,
             "contentBytes": data_b64,
         }
         message["message"]["attachments"] = [attachment]
-    else:
-        st.warning(f"Ek bulunamadı: {attachment_path}")
     return message
 
 def send_mail_graph(access_token: str, payload: Dict[str, Any]) -> None:
@@ -204,13 +195,11 @@ if uploaded:
     st.dataframe(df, use_container_width=True, height=300)
 
     if send_btn:
-        # Load templates
         if not os.path.isfile(templates_path):
             st.error("email_templates.json bulunamadı. Yol doğru mu?")
             st.stop()
         templates = load_templates(templates_path)
 
-        # Token (skip if dry-run? still not needed)
         access_token = None
         if not dry_run:
             client_id, tenant_id = load_env()
@@ -219,12 +208,10 @@ if uploaded:
             tok = get_token_auth_code(client_id, client_secret, tenant_id, redirect_uri)
             access_token = tok["access_token"]
 
-
         sent_count = 0
         logs = []
         now_str = datetime.now().date().isoformat()
 
-        # Ensure report columns exist
         if "report_note" not in df.columns:
             df["report_note"] = ""
         if "last_template_sent" not in df.columns:
@@ -247,12 +234,11 @@ if uploaded:
             to_addr = str(row.get("email","")).strip().lower()
             cc_list = [r for r in cc_list if r["emailAddress"]["address"].lower() != to_addr]
 
-
             if dry_run:
                 logs.append(f"[DRY] {row.get('email','')} | {tkey} | {pdf_path} | CC:{[x['emailAddress']['address'] for x in cc_list]}")
             else:
                 try:
-                    payload = build_graph_message(str(row.get("email","")).strip(), subject, body_html, pdf_path, cc_list)
+                    payload = build_graph_message(to_addr, subject, body_html, pdf_path, cc_list)
                     send_mail_graph(access_token, payload)
                     sent_count += 1
                     logs.append(f"OK {row.get('email','')} ({tkey})")
@@ -260,14 +246,12 @@ if uploaded:
                     logs.append(f"ERROR {row.get('email','')}: {e}")
                     continue
 
-            # Update report columns
             df.at[idx, "last_sent"] = now_str
             rs = int(row.get("reminders_sent", 0) or 0)
             df.at[idx, "reminders_sent"] = min(rs + 1, 3)
             df.at[idx, "last_template_sent"] = tkey
             df.at[idx, "report_note"] = f"{tkey} template has been sent on {now_str}"
 
-            # Optional per-template boolean columns
             colname = f"{tkey}_template_sent"
             if colname not in df.columns:
                 df[colname] = False
@@ -276,7 +260,6 @@ if uploaded:
         st.success(f"Gönderim tamamlandı. Adet: {sent_count}")
         st.text_area("Log", "\n".join(logs), height=200)
 
-        # Prepare updated excel for download
         out = io.BytesIO()
         with pd.ExcelWriter(out, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, sheet_name="invoices")
@@ -284,4 +267,3 @@ if uploaded:
         st.download_button("📥 Güncellenmiş Excel'i indir", out, file_name=f"invoice_mailer_updated_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 else:
     st.info("Üstten bir Excel dosyası yükleyin.")
-#streamlit run app.py
