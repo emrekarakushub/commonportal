@@ -27,32 +27,40 @@ def load_env():
         st.stop()
     return client_id, tenant_id
 
-def get_token(client_id: str, tenant_id: str, cache_path: str = "token_cache.json") -> Dict[str, Any]:
-    cache = SerializableTokenCache()
-    if os.path.exists(cache_path):
-        cache.deserialize(open(cache_path, "r", encoding="utf-8").read())
-    app = PublicClientApplication(
+from msal import ConfidentialClientApplication
+
+def get_token_auth_code(client_id, client_secret, tenant_id, redirect_uri):
+    authority = f"https://login.microsoftonline.com/{tenant_id}"
+    app = ConfidentialClientApplication(
         client_id=client_id,
-        authority=GRAPH_AUTHORITY_TEMPLATE.format(tenant_id=tenant_id),
-        token_cache=cache
+        client_credential=client_secret,
+        authority=authority
     )
-    # Silent attempt
-    result = app.acquire_token_silent(GRAPH_SCOPES, account=None)
-    if not result:
-        flow = app.initiate_device_flow(scopes=GRAPH_SCOPES)
-        if "user_code" not in flow:
-            st.error("Cihaz kodu akışı başlatılamadı. App registration ayarlarını kontrol edin.")
-            st.stop()
-        # Show the code and verification link to the user
-        with st.expander("🔐 Oturum Aç (Microsoft)", expanded=True):
-            st.markdown(f"[Doğrulama sayfasını açmak için tıklayın]({flow['verification_uri']})")
-            st.code(flow["user_code"], language=None)
-            st.info("Yukarıdaki bağlantıyı açın, kodu girip oturum açın ve izinleri onaylayın. Bu paneli kapatmayın; giriş tamamlanınca otomatik devam eder.")
-        result = app.acquire_token_by_device_flow(flow)
-    if "access_token" not in result:
-        st.error(f"Token alınamadı: {result.get('error_description', result)}")
+
+    # Query params’tan code’u al
+    params = st.experimental_get_query_params()
+    code = params.get("code", [None])[0]
+
+    if not code:
+        # Kullanıcıya login linkini göster
+        auth_url = app.get_authorization_request_url(
+            scopes=["User.Read", "Mail.Send", "offline_access"],
+            redirect_uri=redirect_uri
+        )
+        st.markdown(f"[Microsoft ile giriş yapmak için tıklayın]({auth_url})")
         st.stop()
-    open(cache_path, "w", encoding="utf-8").write(cache.serialize())
+
+    # Authorization code’u access token’e çevir
+    result = app.acquire_token_by_authorization_code(
+        code,
+        scopes=["User.Read", "Mail.Send", "offline_access"],
+        redirect_uri=redirect_uri
+    )
+
+    if "access_token" not in result:
+        st.error(f"Giriş başarısız: {result.get('error_description')}")
+        st.stop()
+
     return result
 
 def parse_recipients(value):
