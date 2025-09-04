@@ -8,11 +8,13 @@ import base64
 import requests
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
+from msal import PublicClientApplication, SerializableTokenCache
 from dotenv import load_dotenv
-from msal import ConfidentialClientApplication
 
 st.set_page_config(page_title="Fatura Mailer", page_icon="📧", layout="wide")
 
+GRAPH_AUTHORITY_TEMPLATE = "https://login.microsoftonline.com/{tenant_id}"
+GRAPH_SCOPES = ["User.Read", "Mail.Send"]
 GRAPH_SENDMAIL_URL = "https://graph.microsoft.com/v1.0/me/sendMail"
 
 # ---------- Utility ----------
@@ -21,43 +23,33 @@ def load_env():
     client_id = os.getenv("GRAPH_CLIENT_ID", "").strip()
     tenant_id = os.getenv("GRAPH_TENANT_ID", "").strip()
     if not client_id or not tenant_id:
-        st.error("Secrets veya .env içinde GRAPH_CLIENT_ID ve/veya GRAPH_TENANT_ID yok.")
+        st.error("Secrets/.env içinde GRAPH_CLIENT_ID veya GRAPH_TENANT_ID eksik.")
         st.stop()
     return client_id, tenant_id
 
-# ---------- Auth ----------
-def get_token_auth_code(client_id, client_secret, tenant_id, redirect_uri):
-    authority = f"https://login.microsoftonline.com/{tenant_id}"
-    app = ConfidentialClientApplication(
+# ---------- Device Code Flow ----------
+def get_token(client_id: str, tenant_id: str, cache_path: str = "token_cache.json") -> Dict[str, Any]:
+    cache = SerializableTokenCache()
+    if os.path.exists(cache_path):
+        cache.deserialize(open(cache_path, "r", encoding="utf-8").read())
+    app = PublicClientApplication(
         client_id=client_id,
-        client_credential=client_secret,
-        authority=authority
+        authority=GRAPH_AUTHORITY_TEMPLATE.format(tenant_id=tenant_id),
+        token_cache=cache
     )
-
-    params = st.query_params
-    code = params.get("code", [None])[0]
-
-    if not code:
-        auth_url = app.get_authorization_request_url(
-            scopes=["User.Read", "Mail.Send"],
-            redirect_uri=redirect_uri,
-            response_type="code",
-            response_mode="query",
-            prompt="select_account"
-        )
-        st.markdown(f"[👉 Microsoft ile giriş yapmak için tıklayın]({auth_url})")
-        st.stop()
-
-    result = app.acquire_token_by_authorization_code(
-        code,
-        scopes=["User.Read", "Mail.Send"],
-        redirect_uri=redirect_uri
-    )
-
+    # Sessiz giriş denemesi
+    result = app.acquire_token_silent(GRAPH_SCOPES, account=None)
+    if not result:
+        flow = app.initiate_device_flow(scopes=GRAPH_SCOPES)
+        if "user_code" not in flow:
+            raise ValueError("Device flow başlatılamadı")
+        st.info(f"**Cihaz kodu:** {flow['user_code']}")
+        st.write(f"[Microsoft ile giriş için buraya tıkla]({flow['verification_uri']})")
+        result = app.acquire_token_by_device_flow(flow)
     if "access_token" not in result:
-        st.error(f"Giriş başarısız: {result.get('error_description')}")
-        st.stop()
-
+        raise RuntimeError("Token alınamadı")
+    with open(cache_path, "w", encoding="utf-8") as f:
+        f.write(cache.serialize())
     return result
 
 # ---------- Helpers ----------
@@ -200,9 +192,7 @@ if uploaded:
         access_token = None
         if not dry_run:
             client_id, tenant_id = load_env()
-            client_secret = os.getenv("GRAPH_CLIENT_SECRET")
-            redirect_uri = os.getenv("AUTH_REDIRECT_URI")
-            tok = get_token_auth_code(client_id, client_secret, tenant_id, redirect_uri)
+            tok = get_token(client_id, tenant_id)
             access_token = tok["access_token"]
 
         sent_count = 0
