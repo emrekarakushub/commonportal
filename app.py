@@ -47,7 +47,8 @@ def get_token(client_id: str, tenant_id: str, cache_path: str = "token_cache.jso
         st.write(f"[Microsoft ile giriş için buraya tıkla]({flow['verification_uri']})")
         result = app.acquire_token_by_device_flow(flow)
     if "access_token" not in result:
-        raise RuntimeError("Token alınamadı")
+        st.error(f"Token alınamadı: {result.get('error_description') or result}")
+        st.stop()
     with open(cache_path, "w", encoding="utf-8") as f:
         f.write(cache.serialize())
     return result
